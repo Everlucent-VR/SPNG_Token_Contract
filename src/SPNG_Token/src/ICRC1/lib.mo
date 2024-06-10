@@ -26,6 +26,7 @@ module {
     let { SB } = Utils;
 
     public type Account = T.Account;
+
     public type Subaccount = T.Subaccount;
     public type AccountBalances = T.AccountBalances;
 
@@ -61,6 +62,10 @@ module {
 
     public type TransferResult = T.TransferResult;
     public type TransferFromResult = T.TransferFromResult;
+    public type SetTextParameterResult = T.SetTextParameterResult;
+    public type SetBalanceParameterResult = T.SetBalanceParameterResult;
+    public type SetNat8ParameterResult = T.SetNat8ParameterResult;
+    public type SetAccountParameterResult = T.SetAccountParameterResult;
 
     public let MAX_TRANSACTIONS_IN_LEDGER = 2000;
     public let MAX_TRANSACTION_BYTES : Nat64 = 196;
@@ -81,6 +86,7 @@ module {
             symbol;
             decimals;
             fee;
+            logo;
             minting_account;
             max_supply;
             initial_balances;
@@ -92,13 +98,13 @@ module {
         var permitted_drift = 60_000_000_000;
         var transaction_window = 86_400_000_000_000;
 
-        switch (advanced_settings) {
-            case (?options) {
+        switch(advanced_settings){
+            case(?options) {
                 _burned_tokens := options.burned_tokens;
                 permitted_drift := Nat64.toNat(options.permitted_drift);
                 transaction_window := Nat64.toNat(options.transaction_window);
             };
-            case (null) {};
+            case(null) { };
         };
 
         if (not Account.validate(minting_account)) {
@@ -115,7 +121,7 @@ module {
 
             if (not Account.validate(account)) {
                 Debug.trap(
-                    "Invalid Account: Account at index " # debug_show i # " is invalid in 'initial_balances'"
+                    "Invalid Account: Account at index " # debug_show i # " is invalid in 'initial_balances'",
                 );
             };
 
@@ -129,26 +135,29 @@ module {
                 balance,
             );
 
+            Debug.print("_minted_tokens" # debug_show _minted_tokens);
+
+
             _minted_tokens += balance;
         };
 
         {
-            name = name;
-            symbol = symbol;
-            decimals;
+            var _name = name;
+            var _symbol = symbol;
+            var _decimals = decimals;
             var _fee = fee;
+            var _logo = logo;
             max_supply;
             var _minted_tokens = _minted_tokens;
             var _burned_tokens = _burned_tokens;
-            min_burn_amount;
-            minting_account;
+            var _min_burn_amount = min_burn_amount;
+            var _minting_account = minting_account;
             accounts;
             approve_accounts;
             metadata = Utils.init_metadata(args);
             supported_standards = Utils.init_standards();
-            transactions = SB.initPresized(MAX_TRANSACTIONS_IN_LEDGER);
             approve_transactions = SB.initPresized(MAX_TRANSACTIONS_IN_LEDGER);
-            // approve_transactions = SB.initPresized(MAX_TRANSACTIONS_IN_LEDGER);
+            transactions = SB.initPresized(MAX_TRANSACTIONS_IN_LEDGER);
             permitted_drift;
             transaction_window;
             archive = {
@@ -160,17 +169,17 @@ module {
 
     /// Retrieve the name of the token
     public func name(token : T.TokenData) : Text {
-        token.name;
+        token._name;
     };
 
     /// Retrieve the symbol of the token
     public func symbol(token : T.TokenData) : Text {
-        token.symbol;
+        token._symbol;
     };
 
     /// Retrieve the number of decimals specified for the token
-    public func decimals({ decimals } : T.TokenData) : Nat8 {
-        decimals;
+    public func decimals(token : T.TokenData) : Nat8 {
+        token._decimals;
     };
 
     /// Retrieve the fee for each transfer
@@ -178,15 +187,166 @@ module {
         token._fee;
     };
 
+    /// Retrieve the minimum burn amount for the token
+    public func min_burn_amount(token : T.TokenData) : T.Balance {
+        token._min_burn_amount;
+    };
+
+    /// Set the name of the token
+    public func set_name(token : T.TokenData, name : Text, caller : Principal) : async* T.SetTextParameterResult {
+        if (caller == token._minting_account.owner) {
+            token._name := name;
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting name only allowed via minting account.";
+                },
+            );
+        };
+        #Ok(token._name);
+    };
+
+    /// Set the symbol of the token
+    public func set_symbol(token : T.TokenData, symbol : Text, caller : Principal) : async* T.SetTextParameterResult {
+        if (caller == token._minting_account.owner) {
+            token._symbol := symbol;
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting symbol only allowed via minting account.";
+                },
+            );
+        };
+        #Ok(token._symbol);
+    };
+
+    /// Set the logo for the token
+    public func set_logo(token : T.TokenData, logo : Text, caller : Principal) : async* T.SetTextParameterResult {
+        if (caller == token._minting_account.owner) {
+            token._logo := logo;
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting logo only allowed via minting account.";
+                },
+            );
+        };
+        #Ok(token._logo);
+    };
+
     /// Set the fee for each transfer
-    public func set_fee(token : T.TokenData, fee : Nat) {
-        token._fee := fee;
+    public func set_fee(token : T.TokenData, fee : Nat, caller : Principal) : async* T.SetBalanceParameterResult {
+        if (caller == token._minting_account.owner) {
+            if (fee >= 10_000 and fee <= 1_000_000_000) {
+                token._fee := fee;
+            } else {
+                return #Err(
+                    #GenericError {
+                        error_code = 400;
+                        message = "Bad request: fee must be a value between 10_000 and 1_000_000_000.";
+                    },
+                );
+            };
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting fee only allowed via minting account.";
+                },
+            );
+        };
+        #Ok(token._fee);
+    };
+
+    /// Set the number of decimals specified for the token
+    public func set_decimals(token : T.TokenData, decimals : Nat8, caller : Principal) : async* T.SetNat8ParameterResult {
+        if (caller == token._minting_account.owner) {
+            if (decimals >= 2 and decimals <= 12) {
+                token._decimals := decimals;
+            } else {
+                return #Err(
+                    #GenericError {
+                        error_code = 400;
+                        message = "Bad request: decimals must be a value between 2 and 12.";
+                    },
+                );
+            };      
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting decimals only allowed via minting account.";
+                },
+            );
+        };
+        #Ok(token._decimals);
+    };
+
+    /// Set the minimum burn amount
+    public func set_min_burn_amount(token : T.TokenData, min_burn_amount : Nat, caller : Principal) : async* T.SetBalanceParameterResult {
+        if (caller == token._minting_account.owner) {
+            if (min_burn_amount >= 10_000 and min_burn_amount <= 1_000_000_000_000) {
+                token._min_burn_amount := min_burn_amount;
+            } else {
+                return #Err(
+                    #GenericError {
+                        error_code = 400;
+                        message = "Bad request: minimum burn amount must be a value between 10_000 and 1_000_000_000_000.";
+                    },
+                );
+            };   
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting minimum burn amount only allowed via minting account.";
+                },
+            );
+        };
+        #Ok(token._min_burn_amount);
+    };
+
+    /// Set the minting account
+    public func set_minting_account(token : T.TokenData, minting_account : Text, caller : Principal) : async*  T.SetAccountParameterResult {
+        if (caller == token._minting_account.owner) {
+            token._minting_account := {
+                owner = Principal.fromText(minting_account);
+                subaccount = null;
+            };
+        } else {
+            return #Err(
+                #GenericError {
+                    error_code = 401;
+                    message = "Unauthorized: Setting new minting account only allowed via current minting account.";
+                },
+            );
+        };
+        #Ok(token._minting_account);
     };
 
     /// Retrieve all the metadata of the token
     public func metadata(token : T.TokenData) : [T.MetaDatum] {
-        SB.toArray(token.metadata);
+        [
+            ("icrc1:fee", #Nat(token._fee)),
+            ("icrc1:name", #Text(token._name)),
+            ("icrc1:symbol", #Text(token._symbol)),
+            ("icrc1:decimals", #Nat(Nat8.toNat(token._decimals))),
+            ("icrc1:logo", #Text(token._logo))
+        ]
     };
+
+    /// Returns the current archive canister
+    public func get_archive(token : T.TokenData) : T.ArchiveInterface {
+        token.archive.canister;
+    };    
+
+    /// Returns the total number of transactions in the archive
+    public func get_archive_stored_txs(token : T.TokenData) : Nat {
+        token.archive.stored_txs;
+    };    
 
     /// Returns the total supply of circulating tokens
     public func total_supply(token : T.TokenData) : T.Balance {
@@ -215,7 +375,7 @@ module {
     /// considered burned.**
 
     public func minting_account(token : T.TokenData) : T.Account {
-        token.minting_account;
+        token._minting_account;
     };
 
     /// Retrieve the balance of a given account
@@ -243,7 +403,7 @@ module {
             return 0;
         };
 
-        let float_with_decimals = float * (10 ** Float.fromInt(Nat8.toNat(token.decimals)));
+        let float_with_decimals = float * (10 ** Float.fromInt(Nat8.toNat(token._decimals)));
 
         Int.abs(Float.toInt(float_with_decimals));
     };
@@ -260,12 +420,12 @@ module {
             subaccount = args.from_subaccount;
         };
 
-        let tx_kind = if (from == token.minting_account) {
-            #mint;
-        } else if (args.to == token.minting_account) {
-            #burn;
+        let tx_kind = if (from == token._minting_account) {
+            #mint
+        } else if (args.to == token._minting_account) {
+            #burn
         } else {
-            #transfer;
+            #transfer
         };
 
         let tx_req = Utils.create_transfer_req(args, caller, tx_kind);
@@ -277,17 +437,17 @@ module {
             case (#ok(_)) {};
         };
 
-        let { encoded; amount } = tx_req;
+        let { encoded; amount } = tx_req; 
 
         // process transaction
-        switch (tx_req.kind) {
-            case (#mint) {
+        switch(tx_req.kind){
+            case(#mint){
                 Utils.mint_balance(token, encoded.to, amount);
             };
-            case (#burn) {
+            case(#burn){
                 Utils.burn_balance(token, encoded.from, amount);
             };
-            case (#transfer) {
+            case(#transfer){
                 Utils.transfer_balance(token, tx_req);
 
                 // burn fee
@@ -373,6 +533,7 @@ module {
 
         #Ok(tx.index);
     };
+
     /// Approve tokens from one account to another account
     public func approve(token : T.TokenData, args : T.ApproveArgs, caller : Principal) : async* T.ApproveResult {
 
@@ -417,9 +578,8 @@ module {
     };
 
     /// Helper function to mint tokens with minimum args
-    public func mint(token : T.TokenData, args : T.Mint, caller : Principal) : async* T.TransferResult {
-
-        if (caller != token.minting_account.owner) {
+    public func mint(token : T.TokenData, args : T.Mint, caller : Principal) : async* T.TransferResult {													
+        if (caller != token._minting_account.owner) {
             return #Err(
                 #GenericError {
                     error_code = 401;
@@ -429,7 +589,7 @@ module {
         };
 
         let transfer_args : T.TransferArgs = {
-            args with from_subaccount = token.minting_account.subaccount;
+            args with from_subaccount = token._minting_account.subaccount;
             fee = null;
         };
 
@@ -440,7 +600,7 @@ module {
     public func burn(token : T.TokenData, args : T.BurnArgs, caller : Principal) : async* T.TransferResult {
 
         let transfer_args : T.TransferArgs = {
-            args with to = token.minting_account;
+            args with to = token._minting_account;
             fee = null;
         };
 
@@ -476,13 +636,13 @@ module {
         let req_end = req.start + req.length;
         let tx_end = archive.stored_txs + SB.size(transactions);
 
-        var txs_in_canister : [T.Transaction] = [];
-
+        var txs_in_canister: [T.Transaction] = [];
+        
         if (req.start < tx_end and req_end >= archive.stored_txs) {
             first_index := Nat.max(req.start, archive.stored_txs);
             let tx_start_index = (first_index - archive.stored_txs) : Nat;
 
-            txs_in_canister := SB.slice(transactions, tx_start_index, req.length);
+            txs_in_canister:= SB.slice(transactions, tx_start_index, req.length);
         };
 
         let archived_range = if (req.start < archive.stored_txs) {
@@ -544,10 +704,15 @@ module {
         if (archive.stored_txs == 0) {
             EC.add(200_000_000_000);
             archive.canister := await Archive.Archive();
+        } else { 
+            let add = await* should_add_archive(token);
+            if (add == 1) {
+                await* add_archive(token);
+            };
         };
 
         let res = await archive.canister.append_transactions(
-            SB.toArray(transactions)
+            SB.toArray(transactions),
         );
 
         switch (res) {
@@ -559,4 +724,38 @@ module {
         };
     };
 
+    func should_add_archive(token : T.TokenData) : async* Nat {
+        let { archive } = token;
+        let total_used = await archive.canister.total_used();
+        let remaining_capacity = await archive.canister.remaining_capacity();
+
+        if ( total_used >= remaining_capacity ) {
+            return 1;
+        };
+
+        0;
+    };    
+
+    // Creates a new archive canister
+    func add_archive(token : T.TokenData) : async* () {
+        let { archive; transactions } = token;
+
+        let oldCanister = archive.canister;
+        let old_total_tx : Nat = await oldCanister.total_transactions();
+        let old_first_tx : Nat = await oldCanister.get_first_tx();
+        let old_last_tx : Nat = old_first_tx + old_total_tx - 1;
+                // last_tx == SB.size(token.transactions) + token.archive.stored_txs
+
+        let res1 = await oldCanister.set_last_tx(old_last_tx);
+
+        EC.add(200_000_000_000);
+        let newCanister = await Archive.Archive();
+
+        let res2 = await oldCanister.set_next_archive(newCanister);
+        let res3 = await newCanister.set_prev_archive(oldCanister);
+
+        let res4 = await newCanister.set_first_tx(old_last_tx + 1);
+
+        archive.canister := newCanister;
+    };
 };

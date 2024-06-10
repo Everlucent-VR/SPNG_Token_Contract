@@ -37,10 +37,40 @@ module {
     public type MetaDatum = (Text, Value);
     public type MetaData = [MetaDatum];
 
+
+    public type ApproveError = {
+        #BadFee : { expected_fee : Nat };
+        // The caller does not have enough funds to pay the approval fee.
+        #InsufficientFunds : { balance : Nat };
+        // The caller specified the [expected_allowance] field, and the current
+        // allowance did not match the given value.
+        #AllowanceChanged : {current_allowance : Nat};
+        // The approval request expired before the ledger had a chance to apply it.
+        #Expired : { ledger_time : Nat64 };
+        #TooOld;
+        #CreatedInFuture : { ledger_time : Nat64 };
+        #Duplicate : { duplicate_of : Nat };
+        #TemporarilyUnavailable;
+        #GenericError : { error_code : Nat; message : Text };
+    };
+
+    public type ApproveResult = {
+        #Ok : TxIndex;
+        #Err : ApproveError;
+    };
+
     public type TxKind = {
         #mint;
         #burn;
         #transfer;
+    };
+
+    public type ICRC2TxKind = {
+        #transfer_from;
+    };
+
+    public type OperationKind = {
+        #approve;
     };
 
     public type Mint = {
@@ -77,6 +107,19 @@ module {
         created_at_time : ?Nat64;
     };
 
+    /// Arguments for a transfer from operation
+    public type TransferFromArgs = {
+        from_subaccount : Account;
+        to : Account;
+        amount : Balance;
+        fee : ?Balance;
+        memo : ?Blob;
+
+        /// The time at which the transaction was created.
+        /// If this is set, the canister will check for duplicate transactions and reject them.
+        created_at_time : ?Nat64;
+    };
+
     public type Transfer = {
         from : Account;
         to : Account;
@@ -84,6 +127,38 @@ module {
         fee : ?Balance;
         memo : ?Blob;
         created_at_time : ?Nat64;
+    };
+
+    public type ApproveArgs = {
+        from_subaccount : ?Blob;
+        spender : Principal;
+        amount : Nat;
+        expires_at : ?Nat64;
+        fee : ?Nat;
+        memo : ?Blob;
+        created_at_time : ?Nat64;
+        expected_allowance : ?Nat;
+    };
+
+    public type Approve = {
+        kind : OperationKind;
+        from : Account;
+        spender : Account;
+        amount : Balance;
+        expires_at : ?Nat64;
+        fee : ?Balance;
+        memo : ?Blob;
+        created_at_time : ?Nat64;
+    };
+
+    public type AllowanceArgs = {
+        account : Account;
+        spender : Account;
+    };
+
+    public type Allowance = {
+        allowance : Nat;
+        expires_at : ?Nat64;
     };
 
     /// Internal representation of a transaction request
@@ -101,11 +176,50 @@ module {
         };
     };
 
+    /// Internal representation of a transaction request
+    public type TransactionFromRequest = {
+        kind : ICRC2TxKind;
+        from : Account;
+        to : Account;
+        caller : Principal;
+        amount : Balance;
+        fee : ?Balance;
+        memo : ?Blob;
+        created_at_time : ?Nat64;
+        encoded : {
+            from : EncodedAccount;
+            to : EncodedAccount;
+        };
+    };
+
+    public type ApproveTxRequest = {
+        kind : OperationKind;
+        from : Account;
+        spender : Account;
+        amount : Balance;
+        expires_at : ?Nat64;
+        fee : ?Balance;
+        memo : ?Blob;
+        created_at_time : ?Nat64;
+        encoded : {
+            from : EncodedAccount;
+            to : EncodedAccount;
+        };
+        expected_allowance : ?Nat;
+    };
+
     public type Transaction = {
         kind : Text;
         mint : ?Mint;
         burn : ?Burn;
         transfer : ?Transfer;
+        index : TxIndex;
+        timestamp : Timestamp;
+    };
+
+    // apart from icrc1
+    public type ApproveTransaction = {
+        approve : Approve;
         index : TxIndex;
         timestamp : Timestamp;
     };
@@ -123,10 +237,43 @@ module {
         #TemporarilyUnavailable;
         #GenericError : { error_code : Nat; message : Text };
     };
-    
+
+    public type TransferFromError = TransferError or {
+        #InsufficientAllowance : { allowance : Nat };
+    };
+
+    public type TransferFromResult = {
+        #Ok : TxIndex;
+        #Err : TransferFromError;
+    };
+
+    public type SetParameterError = {
+        #GenericError : { error_code : Nat; message : Text };
+    };
+
     public type TransferResult = {
         #Ok : TxIndex;
         #Err : TransferError;
+    };
+    
+    public type SetTextParameterResult = {
+        #Ok : Text;
+        #Err : SetParameterError;
+    };
+    
+    public type SetNat8ParameterResult = {
+        #Ok : Nat8;
+        #Err : SetParameterError;
+    };
+    
+    public type SetBalanceParameterResult = {
+        #Ok : Balance;
+        #Err : SetParameterError;
+    };
+    
+    public type SetAccountParameterResult = {
+        #Ok : Account;
+        #Err : SetParameterError;
     };
 
     /// Interface for the ICRC token canister
@@ -184,6 +331,26 @@ module {
         /// Returns the number of bytes left in the archive before it is full
         /// > The capacity of the archive canister is 32GB
         remaining_capacity : shared query () -> async Nat;
+
+        total_used : shared query () -> async Nat;
+
+        max_memory : shared query () -> async Nat;
+
+        get_first_tx : shared query () -> async Nat;
+
+        get_last_tx : shared query () -> async Nat;
+
+        get_prev_archive : shared query () -> async ArchiveInterface;
+
+        get_next_archive : shared query () -> async ArchiveInterface;
+
+        set_first_tx : shared (Nat) -> async Result.Result<(), Text>;
+
+        set_last_tx : shared (Nat) -> async Result.Result<(), Text>;
+
+        set_prev_archive : shared (ArchiveInterface) -> async Result.Result<(), Text>;
+
+        set_next_archive : shared (ArchiveInterface) -> async Result.Result<(), Text>;
     };
 
     /// Initial arguments for the setting up the icrc1 token canister
@@ -192,6 +359,7 @@ module {
         symbol : Text;
         decimals : Nat8;
         fee : Balance;
+        logo : Text;
         minting_account : Account;
         max_supply : Balance;
         initial_balances : [(Account, Balance)];
@@ -207,6 +375,7 @@ module {
         symbol : Text;
         decimals : Nat8;
         fee : Balance;
+        logo : Text;
         max_supply : Balance;
         initial_balances : [(Account, Balance)];
         min_burn_amount : Balance;
@@ -227,6 +396,8 @@ module {
 
     public type AccountBalances = StableTrieMap<EncodedAccount, Balance>;
 
+    public type ApproveBalances = StableTrieMap<EncodedAccount, Allowance>;
+
     /// The details of the archive canister
     public type ArchiveData = {
         /// The reference to the archive canister
@@ -239,16 +410,19 @@ module {
     /// The state of the token canister
     public type TokenData = {
         /// The name of the token
-        name : Text;
+        var _name : Text;
 
         /// The symbol of the token
-        symbol : Text;
+        var _symbol : Text;
 
         /// The number of decimals the token uses
-        decimals : Nat8;
+        var _decimals : Nat8;
 
         /// The fee charged for each transaction
         var _fee : Balance;
+
+        /// The logo for the token
+        var _logo : Text;
 
         /// The maximum supply of the token
         max_supply : Balance;
@@ -261,10 +435,13 @@ module {
 
         /// The account that is allowed to mint new tokens
         /// On initialization, the maximum supply is minted to this account
-        minting_account : Account;
+        var _minting_account : Account;
 
         /// The balances of all accounts
         accounts : AccountBalances;
+
+        /// The balances of all appro
+        approve_accounts : ApproveBalances;
 
         /// The metadata for the token
         metadata : StableBuffer<MetaDatum>;
@@ -276,7 +453,7 @@ module {
         transaction_window : Nat;
 
         /// The minimum amount of tokens that must be burned in a transaction
-        min_burn_amount : Balance;
+        var _min_burn_amount : Balance;
 
         /// The allowed difference between the ledger time and the time of the device the transaction was created on
         permitted_drift : Nat;
@@ -284,6 +461,8 @@ module {
         /// The recent transactions that have been processed by the ledger.
         /// Only the last 2000 transactions are stored before being archived.
         transactions : StableBuffer<Transaction>;
+
+        approve_transactions : StableBuffer<ApproveTransaction>;
 
         /// The record that stores the details to the archive canister and number of transactions stored in it
         archive : ArchiveData;

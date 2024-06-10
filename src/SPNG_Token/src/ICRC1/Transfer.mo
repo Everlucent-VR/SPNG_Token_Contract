@@ -132,10 +132,18 @@ module {
         token : T.TokenData,
         opt_fee : ?T.Balance,
     ) : Bool {
-        
-        let ?fee = opt_fee else return true; // if fee is not set, it is assumed to be the default fee
+        switch (opt_fee) {
+            case (?tx_fee) {
+                if (tx_fee != token._fee) { // ensure that the transaction was not sent assuming different current fee 
+                    return false;
+                };
+            };
+            case (null) {
+                return true; // if fee is not passed as arg, the transaction is assumed ok with current fee.
+            };
+        };
 
-        return fee == token._fee;
+        true;
     };
 
     /// Checks if a transfer request is valid
@@ -144,21 +152,21 @@ module {
         tx_req : T.TransactionRequest,
     ) : Result.Result<(), T.TransferError> {
 
-        if (tx_req.from == tx_req.to) {
-            return #err(
-                #GenericError({
-                    error_code = 0;
-                    message = "The sender cannot have the same account as the recipient.";
-                }),
-            );
-        };
+        // if (tx_req.from == tx_req.to) {
+        //     return #err(
+        //         #GenericError({
+        //             error_code = 0;
+        //             message = "The sender cannot have the same account as the recipient.";
+        //         })
+        //     );
+        // };
 
         if (not Account.validate(tx_req.from)) {
             return #err(
                 #GenericError({
                     error_code = 0;
-                    message = "Invalid account entered for sender. "  # debug_show(tx_req.from);
-                }),
+                    message = "Invalid account entered for sender. " # debug_show (tx_req.from);
+                })
             );
         };
 
@@ -166,8 +174,8 @@ module {
             return #err(
                 #GenericError({
                     error_code = 0;
-                    message = "Invalid account entered for recipient " # debug_show(tx_req.to);
-                }),
+                    message = "Invalid account entered for recipient " # debug_show (tx_req.to);
+                })
             );
         };
 
@@ -176,7 +184,7 @@ module {
                 #GenericError({
                     error_code = 0;
                     message = "Memo must not be more than 32 bytes";
-                }),
+                })
             );
         };
 
@@ -185,7 +193,7 @@ module {
                 #GenericError({
                     error_code = 0;
                     message = "Amount must be greater than 0";
-                }),
+                })
             );
         };
 
@@ -195,7 +203,7 @@ module {
                     return #err(
                         #BadFee {
                             expected_fee = token._fee;
-                        },
+                        }
                     );
                 };
 
@@ -204,9 +212,7 @@ module {
                     tx_req.encoded.from,
                 );
 
-                let fee = Option.get(tx_req.fee, token._fee);
-
-                if (tx_req.amount + fee > balance) {
+                if (tx_req.amount + token._fee > balance) {
                     return #err(#InsufficientFunds { balance });
                 };
             };
@@ -219,14 +225,14 @@ module {
                         #GenericError({
                             error_code = 0;
                             message = "Cannot mint more than " # Nat.toText(remaining_tokens) # " tokens";
-                        }),
+                        })
                     );
                 };
             };
             case (#burn) {
-                if (tx_req.to == token.minting_account and tx_req.amount < token.min_burn_amount) {
+                if (tx_req.to == token._minting_account and tx_req.amount < token._min_burn_amount) {
                     return #err(
-                        #BadBurn { min_burn_amount = token.min_burn_amount },
+                        #BadBurn { min_burn_amount = token._min_burn_amount }
                     );
                 };
 
@@ -253,7 +259,7 @@ module {
                     return #err(
                         #CreatedInFuture {
                             ledger_time = Nat64.fromNat(Int.abs(Time.now()));
-                        },
+                        }
                     );
                 };
 
@@ -262,7 +268,7 @@ module {
                         return #err(
                             #Duplicate {
                                 duplicate_of = tx_index;
-                            },
+                            }
                         );
                     };
                     case (_) {};
@@ -273,4 +279,184 @@ module {
         #ok();
     };
 
+    public func validate_approve_request(
+        token : T.TokenData,
+        tx_req : T.ApproveTxRequest,
+    ) : Result.Result<(), T.ApproveError> {
+        // TODO: The spender's allowance for the { owner = caller; subaccount = from_subaccount }
+        // increases by the amount (or decreases if the amount is negative). If the total allowance
+        // is negative, the ledger MUST reset the allowance to zero.
+        if (tx_req.from.owner == tx_req.spender.owner) {
+            return #err(
+                #GenericError({
+                    error_code = 0;
+                    message = "The approve Principal cannot be the same Principal as the approver.";
+                })
+            );
+        };
+
+        if (not Account.validate(tx_req.from)) {
+            return #err(
+                #GenericError({
+                    error_code = 0;
+                    message = "Invalid account entered for sender. " # debug_show (tx_req.from);
+                })
+            );
+        };
+
+        if (not Account.validate(tx_req.spender)) {
+            return #err(
+                #GenericError({
+                    error_code = 0;
+                    message = "Invalid account entered for recipient " # debug_show (tx_req.spender);
+                })
+            );
+        };
+
+        if (not validate_memo(tx_req.memo)) {
+            return #err(
+                #GenericError({
+                    error_code = 0;
+                    message = "Memo must not be more than 32 bytes";
+                })
+            );
+        };
+        // seems it's not need to let amount < 0, cause type Nat is >= 0 always
+        if (tx_req.amount < 0) {
+            return #err(
+                #GenericError({
+                    error_code = 0;
+                    message = "Amount must be greater than or euqal 0";
+                })
+            );
+        };
+
+        switch (tx_req.kind) {
+            case (#approve) {
+                if (not validate_fee(token, tx_req.fee)) {
+                    return #err(
+                        #BadFee {
+                            expected_fee = token._fee;
+                        }
+                    );
+                };
+
+                let balance : T.Balance = Utils.get_balance(
+                    token.accounts,
+                    tx_req.encoded.from,
+                );
+
+                if (tx_req.amount > balance + token._fee) {
+                    return #err(#InsufficientFunds { balance = balance });
+                };
+            };
+        };
+
+        // check expected allowance
+        switch (tx_req.expected_allowance) {
+            case (null) {};
+            case (?expected_allowance) {
+                let account_pair = Utils.gen_account_from_two_account(tx_req.encoded.from, tx_req.encoded.to);
+                let saved_allowance = Utils.get_allowance(token.approve_accounts, account_pair);
+                if (expected_allowance != saved_allowance.allowance) {
+                    return #err(
+                        #AllowanceChanged {
+                            current_allowance = saved_allowance.allowance;
+                        }
+                    );
+                };
+            };
+        };
+
+        switch (tx_req.created_at_time) {
+            case (null) {};
+            case (?created_at_time) {
+
+                if (is_too_old(token, created_at_time)) {
+                    return #err(#TooOld);
+                };
+
+                if (is_in_future(token, created_at_time)) {
+                    return #err(
+                        #CreatedInFuture {
+                            ledger_time = Nat64.fromNat(Int.abs(Time.now()));
+                        }
+                    );
+                };
+            };
+        };
+
+        #ok();
+    };
+
+    /// Checks if a transfer request is valid
+    public func validate_transfer_from_request(
+        token : T.TokenData,
+        tx_req : T.TransactionFromRequest,
+    ) : Result.Result<(), T.TransferFromError> {
+
+        let encoded_caller_account = Account.encode({
+            owner = tx_req.caller;
+            subaccount = null;
+            });
+
+        let account_pair = Utils.gen_account_from_two_account(tx_req.encoded.from, encoded_caller_account);
+        // check allowance
+        let allowance_pair : T.Allowance = Utils.get_allowance(
+            token.approve_accounts,
+            account_pair,
+        );
+
+        if (tx_req.amount > allowance_pair.allowance + token._fee) {
+            return #err(#InsufficientAllowance { allowance = allowance_pair.allowance });
+        };
+
+        // check balance
+        let balance : T.Balance = Utils.get_balance(
+            token.accounts,
+            tx_req.encoded.from,
+        );
+
+        if (tx_req.amount > balance + token._fee) {
+            return #err(#InsufficientFunds { balance = balance });
+        };
+
+        // check expire time
+        // TODO: let expire time be a new type of error
+        switch (allowance_pair.expires_at) {
+            case (null) {};
+            case (?expires_at_time) {
+                switch (tx_req.created_at_time) {
+                    case (null) {};
+                    case (?created_at_time) {
+                        if (created_at_time > expires_at_time) {
+                            return #err(#InsufficientFunds { balance = 0 });
+                        };
+                    };
+                };
+            };
+        };
+
+        switch (tx_req.created_at_time) {
+            case (null) {};
+            case (?created_at_time) {
+
+                if (is_too_old(token, created_at_time)) {
+                    return #err(#TooOld);
+                };
+
+                if (is_in_future(token, created_at_time)) {
+                    return #err(
+                        #CreatedInFuture {
+                            ledger_time = Nat64.fromNat(Int.abs(Time.now()));
+                        }
+                    );
+                };
+
+                // check deduplicate is in transfer validate_request
+            };
+        };
+
+        #ok();
+    };
 };

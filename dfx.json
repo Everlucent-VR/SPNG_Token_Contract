@@ -1,27 +1,14 @@
 {
   "canisters": {
-    "SPNG_Token_Contract_backend": {
-      "main": "src/SPNG_Token_Contract_backend/main.mo",
+    "SPNG_Token": {
+      "main": "src/SPNG_Token/main.mo",
       "type": "motoko"
-    },
-    "SPNG_Token_Contract_frontend": {
-      "dependencies": [
-        "SPNG_Token_Contract_backend"
-      ],
-      "frontend": {
-        "entrypoint": "src/SPNG_Token_Contract_frontend/src/index.html"
-      },
-      "source": [
-        "src/SPNG_Token_Contract_frontend/assets",
-        "dist/SPNG_Token_Contract_frontend/"
-      ],
-      "type": "assets"
     }
   },
   "defaults": {
     "build": {
       "args": "",
-      "packtool": ""
+      "packtool": "vessel sources"
     }
   },
   "output_env_file": ".env",

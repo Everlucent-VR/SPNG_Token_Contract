@@ -151,11 +151,38 @@ module {
     };
 
     /// Converts an ICRC-1 Account from its Textual representation to the `Account` type
-    /// @deprecated - Use the account module instead - https://github.com/letmejustputthishere/account
-    public func fromText(encoded : Text) : ?T.Account = null;
+    public func fromText(encoded : Text) : ?T.Account {
+        let p = Principal.fromText(encoded);
+        let blob = Principal.toBlob(p);
+
+        decode(blob);
+    };
 
     /// Converts an ICRC-1 `Account` to its Textual representation
-    /// @deprecated - Use the account module instead - https://github.com/letmejustputthishere/account
-    public func toText(account : T.Account) : Text = "";
+    public func toText(account : T.Account) : Text {
+        let blob = encode(account);
+        let principal = Principal.fromBlob(blob);
+        Principal.toText(principal);
+    };
 
+    func from_hex(char : Char) : Nat8 {
+        let charCode = Char.toNat32(char);
+
+        if (Char.isDigit(char)) {
+            let digit = charCode - Char.toNat32('0');
+
+            return Nat8.fromNat(Nat32.toNat(digit));
+        };
+
+        if (Char.isUppercase(char)) {
+            let digit = charCode - Char.toNat32('A') + 10;
+
+            return Nat8.fromNat(Nat32.toNat(digit));
+        };
+
+        // lowercase
+        let digit = charCode - Char.toNat32('a') + 10;
+
+        return Nat8.fromNat(Nat32.toNat(digit));
+    };
 };
