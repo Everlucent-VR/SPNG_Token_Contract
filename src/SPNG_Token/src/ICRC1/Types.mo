@@ -2,6 +2,7 @@ import Deque "mo:base/Deque";
 import List "mo:base/List";
 import Time "mo:base/Time";
 import Result "mo:base/Result";
+import Blob "mo:base/Blob";
 
 import STMap "mo:StableTrieMap";
 import StableBuffer "mo:StableBuffer/StableBuffer";
@@ -109,7 +110,8 @@ module {
 
     /// Arguments for a transfer from operation
     public type TransferFromArgs = {
-        from_subaccount : Account;
+        spender_subaccount: ?Blob;
+        from : Account;
         to : Account;
         amount : Balance;
         fee : ?Balance;
@@ -131,7 +133,7 @@ module {
 
     public type ApproveArgs = {
         from_subaccount : ?Blob;
-        spender : Principal;
+        spender : Account;
         amount : Nat;
         expires_at : ?Nat64;
         fee : ?Nat;

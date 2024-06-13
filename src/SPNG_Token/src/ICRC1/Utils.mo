@@ -140,13 +140,13 @@ module {
     ) : T.TransactionFromRequest {
 
         let encoded = {
-            from = Account.encode(args.from_subaccount);
+            from = Account.encode(args.from);
             to = Account.encode(args.to);
         };
 
         {
             args with kind = #transfer_from;
-            from = args.from_subaccount;
+            from = args.from;
             caller;
             encoded;
         };
@@ -163,10 +163,7 @@ module {
             subaccount = args.from_subaccount;
         };
 
-        let to = {
-            owner = args.spender;
-            subaccount = null;
-        };
+        let to = args.spender;
 
         let encoded = {
             from = Account.encode(from);

@@ -152,14 +152,14 @@ module {
         tx_req : T.TransactionRequest,
     ) : Result.Result<(), T.TransferError> {
 
-        // if (tx_req.from == tx_req.to) {
-        //     return #err(
-        //         #GenericError({
-        //             error_code = 0;
-        //             message = "The sender cannot have the same account as the recipient.";
-        //         })
-        //     );
-        // };
+        if (tx_req.from == tx_req.to) {
+            return #err(
+                #GenericError({
+                    error_code = 0;
+                    message = "The sender cannot have the same account as the recipient.";
+                })
+            );
+        };
 
         if (not Account.validate(tx_req.from)) {
             return #err(
@@ -346,9 +346,9 @@ module {
                     tx_req.encoded.from,
                 );
 
-                if (tx_req.amount > balance + token._fee) {
-                    return #err(#InsufficientFunds { balance = balance });
-                };
+                // if (tx_req.amount > balance + token._fee) {
+                //     return #err(#InsufficientFunds { balance = tx_req.amount});
+                // };
             };
         };
 
